@@ -1,0 +1,123 @@
+---
+title: "Prediction Assignment Writeup"
+author: "H K Vamshidhar"
+date: "September 16, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1.Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+### Importing Required Packages:
+```{r ,eval=FALSE}
+suppressMessages(library(rmarkdown))
+suppressMessages(library(knitr))
+```
+
+## 2.Getting data 
+Importing Data From the provided *Urls*
+```{r echo=TRUE, cache=TRUE}
+dtrain <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), stringsAsFactors = FALSE, na.strings = c(NA, "#DIV/0!"))
+dtest <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), stringsAsFactors = FALSE, na.strings = c(NA, "#DIV/0!"))
+dtest$problem_id <- NULL #We need to predict this at end
+```
+
+## 3.Data Discovery
+```{r Data Discovery, echo=TRUE}
+dim(dtrain)
+```
+Lets find out the columns having missing values.
+`r (length(colSums(is.na(dtrain))[colSums(is.na(dtrain)) > 0]))` columns are found to be having missing values. Missingness was found to be `r round(19216/ nrow(dtrain)* 100,2)  `% in all these columns.So it is better to remove these columns from the modelling.
+
+## 4.Data Cleansing
+```{r }
+#data cleaning function:
+data_cleaning <- function(inputdata){
+  #Removing Unnecessasary variables
+  inputdata <- inputdata[, -(1:7)]
+  #Deleting Missing Values:
+  inputdata <- inputdata[!vapply(inputdata, anyNA, logical(1))]
+}
+dtrain <- data_cleaning(dtrain)
+dtest <- data_cleaning(dtest)
+#names(dtrain) To keep same names as in dtrain
+
+#Rounding numerical variales to reduce computational complexity
+num_vars <- names(dtrain)[sapply(dtrain,is.double)]
+for (i in num_vars){
+  dtrain[,i] <- round(dtrain[,i],2)
+}
+num_vars <- names(dtest)[sapply(dtest,is.double)]
+for (i in num_vars){
+  dtest[,i] <- round(dtest[,i],2)
+}
+dtrain$classe <- factor(dtrain$classe)
+#Create data partitions:
+suppressMessages(library(caret))
+intrain <- createDataPartition(dtrain$classe, p = 0.75, list = FALSE)
+dtraining <- dtrain[intrain,]
+dvalidation <- dtrain[-intrain,]
+rm(dtrain)
+```
+## 5.EDA
+```{r, echo=TRUE}
+suppressMessages(library(ggplot2))
+qplot(dtraining$classe, geom = 'bar', fill = dtraining$classe)
+```
+
+### Inference: 
+Class A was found to be bit more frequently occured than remained classes.
+
+## 6.Preprocessing
+```{r, cache=TRUE}
+pre_proc <- preProcess(dtraining[, -53], 
+                       method = c("center", "scale", "YeoJohnson","nzv"))
+dtraining_preproc <- predict(pre_proc, dtraining)
+dvalidation_preproc <- predict(pre_proc, dvalidation)
+dtest_preproc <- predict(pre_proc, dtest)
+```
+## 7.Modelling:
+### Lets start with rpart i.e Decision tree
+```{r, cache=TRUE}
+suppressMessages(library(rpart))
+rp <- rpart(classe ~ ., data=dtraining_preproc, method="class")
+pred_rp <- predict(rp, dvalidation_preproc,type = "class")
+confusionMatrix(pred_rp, dvalidation$classe)
+```
+### Modeling with RandomForest
+```{r, cache=TRUE}
+suppressMessages(library(randomForest))
+rf <- randomForest(classe ~ ., data=dtraining_preproc, method="class")
+pred_rf <- predict(rf, dvalidation_preproc,type = "response")
+confusionMatrix(pred_rf, dvalidation$classe)
+```
+### Inference:
+Decision tree algorithm performed well and showed **0.72** accuracy. But RandomForest showed better performance than decision tress as it has accuracy **0.99**
+
+Models         | Accuracy   | Error
+---------------|------------|-----------
+Decision Tree  |  0.72      | 1 - 0.72 = `r 1-0.72`
+RandomForest   |  0.99      | 1 - 0.99 = `r 1-0.99`
+
+## 8.Final Prediction
+Since we got better performance with Radomforests we can 
+predict the test values using it.
+```{r}
+suppressMessages(library(randomForest))
+final_predictions <-  predict(rf, dtest_preproc,type = "response")
+final_predictions
+```
+## 9.Conclusion
+* Using the given url data was loaded into R.
+* There found many missing values in some variables, all those values are later deleted
+* Data was made some transformations like "center", "scale", "YeoJohnson" and "nzv".
+     + "YeoJohnson": To make data more or less normal distribution
+     + "center" and "scale": To avoid dominance of larger values
+     + "nzv": To remove Near zero variance variables
+* Two model are performed "Decision Tree" and "FandomForest".
+* Randomforest model was finalized and predictions were made using it.
+
